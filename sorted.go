@@ -3,7 +3,9 @@ package tree
 import "container/list"
 
 type Sorted interface {
-	Reversed() []string
+	Count() int
+	Names() []string
+	Values() []interface{}
 	Get(string) interface{}
 	Set(string, interface{})
 	Remove(string) interface{}
@@ -26,7 +28,22 @@ func NewSorted() Sorted {
 	return dso
 }
 
-func (dso *sorted) Reversed() []string {
+func (dso *sorted) Count() int {
+	return len(dso.index)
+}
+
+func (dso *sorted) Values() []interface{} {
+	values := make([]interface{}, 0, len(dso.index))
+	element := dso.list.Back()
+	for element != nil {
+		item := element.Value.(*named)
+		values = append(values, item.value)
+		element = element.Prev()
+	}
+	return values
+}
+
+func (dso *sorted) Names() []string {
 	names := make([]string, 0, len(dso.index))
 	element := dso.list.Back()
 	for element != nil {

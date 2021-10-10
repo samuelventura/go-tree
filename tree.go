@@ -25,7 +25,7 @@ type State struct {
 	Name     string
 	Actions  []string
 	Agents   []string
-	Children map[string]Node
+	Children []Node
 	Closed   bool
 	Clean    bool
 }
@@ -41,12 +41,11 @@ type node struct {
 	name     string
 	mutex    *sync.Mutex
 	actions  Sorted
-	gc       chan interface{}
+	children Sorted
 	done     chan interface{}
 	channel  chan interface{}
 	agents   map[string]interface{}
 	values   map[string]interface{}
-	children map[string]Node
 	closed   bool
 	clean    bool
 }
@@ -65,7 +64,7 @@ func NewRoot(log *Log) Node {
 	dso.channel = make(chan interface{})
 	dso.agents = make(map[string]interface{})
 	dso.values = make(map[string]interface{})
-	dso.children = make(map[string]Node)
+	dso.children = NewSorted()
 	dso.actions = NewSorted()
 	return dso
 }
@@ -93,34 +92,16 @@ func (dso *node) State() *State {
 	s.Name = dso.name
 	s.Closed = dso.closed
 	s.Clean = dso.clean
-	s.Actions = dso.actions.Reversed()
+	s.Actions = dso.actions.Names()
 	s.Agents = make([]string, 0, len(dso.agents))
-	s.Children = make(map[string]Node)
+	s.Children = make([]Node, 0, dso.children.Count())
 	for n := range dso.agents {
 		s.Agents = append(s.Agents, n)
 	}
-	for n, c := range dso.children {
-		s.Children[n] = c
+	for _, v := range dso.children.Values() {
+		s.Children = append(s.Children, v.(Node))
 	}
 	return s
-}
-
-func (dso *node) Close() {
-	dso.mutex.Lock()
-	defer dso.mutex.Unlock()
-	if !dso.closed {
-		dso.closed = true
-		dso.gc = make(chan interface{})
-		close(dso.channel)
-		for _, name := range dso.actions.Reversed() {
-			current := dso.actions.Remove(name)
-			dso.safe(name, current.(func()))
-		}
-		for _, child := range dso.children {
-			child.Close()
-		}
-		go dso.gc_loop()
-	}
 }
 
 func (dso *node) Child(name string) Node {
@@ -130,7 +111,7 @@ func (dso *node) Child(name string) Node {
 		dso.log.Output("closed ignoring child:", name)
 		return nil
 	}
-	if _, ok := dso.children[name]; ok {
+	if dso.children.Get(name) != nil {
 		dso.log.Fatal("duplicate child:", name)
 		return nil
 	}
@@ -140,7 +121,7 @@ func (dso *node) Child(name string) Node {
 	for n, v := range dso.values {
 		child.values[n] = v
 	}
-	dso.children[name] = child
+	dso.children.Set(name, child)
 	return child
 }
 
@@ -158,17 +139,10 @@ func (dso *node) Go(name string, action func()) {
 	dso.agents[name] = action
 	go func() {
 		defer func() {
-			closed := false
-			action := func() {
-				if closed {
-					dso.gc_check()
-				}
-			}
-			defer action()
+			defer dso.cleanup()
 			dso.mutex.Lock()
 			defer dso.mutex.Unlock()
 			delete(dso.agents, name)
-			closed = dso.closed
 		}()
 		dso.safe(name, action)
 	}()
@@ -214,6 +188,52 @@ func (dso *node) AddCloser(name string, action func() error) {
 	})
 }
 
+func (dso *node) Close() {
+	dso.mutex.Lock()
+	defer dso.mutex.Unlock()
+	if !dso.closed {
+		dso.closed = true
+		close(dso.channel)
+		for _, name := range dso.actions.Names() {
+			current := dso.actions.Remove(name)
+			dso.safe(name, current.(func()))
+		}
+		children := dso.children.Values()
+		go func() {
+			for _, child := range children {
+				child.(Node).Close()
+			}
+			dso.cleanup()
+		}()
+	}
+}
+
+func (dso *node) cleanup() {
+	dso.mutex.Lock()
+	defer dso.mutex.Unlock()
+	if !dso.closed {
+		return
+	}
+	if len(dso.agents) > 0 {
+		return
+	}
+	if dso.children.Count() > 0 {
+		return
+	}
+	if dso.clean {
+		return
+	}
+	dso.clean = true
+	close(dso.done)
+	if dso.parent == nil {
+		return
+	}
+	defer dso.parent.cleanup()
+	dso.parent.mutex.Lock()
+	defer dso.parent.mutex.Unlock()
+	dso.parent.children.Remove(dso.name)
+}
+
 func (dso *node) set(name string, action func()) {
 	current := dso.actions.Remove(name)
 	if current != nil {
@@ -234,54 +254,4 @@ func (dso *node) safe(name string, action func()) {
 		}
 	}()
 	action()
-}
-
-func (dso *node) gc_check() {
-	dso.gc <- true
-}
-
-func (dso *node) gc_loop() {
-	dso.gc_try()
-	for {
-		select {
-		case <-dso.gc:
-			dso.gc_try()
-		case <-dso.done:
-			return
-		}
-	}
-}
-
-func (dso *node) gc_try() {
-	dso.mutex.Lock()
-	defer dso.mutex.Unlock()
-	if !dso.closed {
-		return
-	}
-	if len(dso.agents) > 0 {
-		return
-	}
-	if len(dso.children) > 0 {
-		return
-	}
-	if !dso.clean {
-		dso.clean = true
-		close(dso.done)
-	}
-	if dso.parent == nil {
-		return
-	}
-	closed := false
-	parent := dso.parent
-	action := func() {
-		if closed {
-			parent.gc_check()
-		}
-	}
-	defer action()
-	dso.parent.mutex.Lock()
-	defer dso.parent.mutex.Unlock()
-	delete(dso.parent.children, dso.name)
-	closed = dso.parent.closed
-	dso.parent = nil
 }
