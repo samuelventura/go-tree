@@ -10,7 +10,7 @@ import (
 
 func TestRootChannelCleanup(t *testing.T) {
 	tlog := &tlog{make(chan string, 1024)}
-	root := NewRoot(&Log{tlog.pln, tlog.ftl})
+	root := NewRoot(log(tlog))
 	go1 := make(chan interface{})
 	root.AddChannel("go1", go1)
 	check(t, tlog, root, 1000)
@@ -19,7 +19,7 @@ func TestRootChannelCleanup(t *testing.T) {
 
 func TestRootActionCleanup(t *testing.T) {
 	tlog := &tlog{make(chan string, 1024)}
-	root := NewRoot(&Log{tlog.pln, tlog.ftl})
+	root := NewRoot(log(tlog))
 	go1 := make(chan interface{})
 	root.AddAction("go1", func() {
 		close(go1)
@@ -30,7 +30,7 @@ func TestRootActionCleanup(t *testing.T) {
 
 func TestRootCloserCleanup(t *testing.T) {
 	tlog := &tlog{make(chan string, 1024)}
-	root := NewRoot(&Log{tlog.pln, tlog.ftl})
+	root := NewRoot(log(tlog))
 	go1 := make(chan interface{})
 	root.AddCloser("go1", func() error {
 		close(go1)
@@ -42,7 +42,7 @@ func TestRootCloserCleanup(t *testing.T) {
 
 func TestRootClosed(t *testing.T) {
 	tlog := &tlog{make(chan string, 1024)}
-	root := NewRoot(&Log{tlog.pln, tlog.ftl})
+	root := NewRoot(log(tlog))
 	root.Close()
 	go1 := make(chan interface{})
 	root.AddChannel("go1", go1)
@@ -61,7 +61,7 @@ func TestRootClosed(t *testing.T) {
 		close(go4)
 	})
 	<-go4
-	assert.Nil(t, root.Child("child"))
+	assert.Nil(t, root.AddChild("child"))
 	assert.Equal(t, 0, len(root.State().Children))
 	go5 := make(chan interface{})
 	root.Go("agent", func() { <-go5 })
@@ -70,10 +70,10 @@ func TestRootClosed(t *testing.T) {
 
 func TestChildCleanup(t *testing.T) {
 	tlog := &tlog{make(chan string, 1024)}
-	root := NewRoot(&Log{tlog.pln, tlog.ftl})
-	child1 := root.Child("child1")
-	child2 := root.Child("child2")
-	child3 := root.Child("child3")
+	root := NewRoot(log(tlog))
+	child1 := root.AddChild("child1")
+	child2 := root.AddChild("child2")
+	child3 := root.AddChild("child3")
 	child1.Go("go1", func() { <-child1.Closed() })
 	child1.Go("go2", func() { <-child2.Closed() })
 	child1.Go("go3", func() { <-child3.Closed() })
@@ -88,9 +88,17 @@ func TestChildCleanup(t *testing.T) {
 
 func TestRandom(t *testing.T) {
 	tlog := &tlog{make(chan string, 1024)}
-	root := NewRoot(&Log{tlog.pln, tlog.ftl})
+	root := NewRoot(log(tlog))
 	random(root, 5, 10)
 	check(t, tlog, root, 4000)
+}
+
+func log(tlog *tlog) *Log {
+	return &Log{
+		Warn:    tlog.pln,
+		Fatal:   tlog.ftl,
+		Recover: tlog.pln,
+	}
 }
 
 func random(node Node, vmax int, hmax int) {
@@ -122,13 +130,13 @@ func random(node Node, vmax int, hmax int) {
 	}
 	n = rand.Intn(hmax)
 	for i := 0; i < n; i++ {
-		child := node.Child("child" + fmt.Sprint(i))
+		child := node.AddChild("child" + fmt.Sprint(i))
 		random(child, vmax-1, hmax)
 	}
 }
 
 func check(t *testing.T, tlog *tlog, root Node, millis int) {
-	go tlog.w(root.Done(), "done")
+	go tlog.w(root.Disposed(), "done")
 	defer dump(root, "")
 	go root.Close()
 	tlog.tose(t, millis, "done\n")

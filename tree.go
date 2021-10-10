@@ -8,17 +8,18 @@ import (
 type Node interface {
 	Name() string
 	State() *State
-	Child(name string) Node
 	Go(name string, action func())
+	AddChild(name string) Node
 	GetValue(name string) interface{}
 	SetValue(name string, value interface{})
 	AddAction(name string, action func())
 	AddCloser(name string, closer func() error)
 	AddChannel(name string, channel chan interface{})
+	Disposed() <-chan interface{}
 	Closed() <-chan interface{}
-	Done() <-chan interface{}
+	WaitDisposed()
+	WaitClosed()
 	Close()
-	Wait()
 }
 
 type State struct {
@@ -27,41 +28,45 @@ type State struct {
 	Agents   []string
 	Children []Node
 	Closed   bool
-	Clean    bool
+	Disposed bool
 }
 
 type Log struct {
-	Output func(...interface{})
-	Fatal  func(...interface{})
+	Warn    func(...interface{})
+	Fatal   func(...interface{})
+	Recover func(...interface{})
+}
+
+type flag struct {
+	channel chan interface{}
+	flag    bool
 }
 
 type node struct {
 	log      *Log
 	parent   *node
 	name     string
-	mutex    *sync.Mutex
 	actions  Sorted
 	children Sorted
-	done     chan interface{}
-	channel  chan interface{}
+	mutex    *sync.Mutex
 	agents   map[string]interface{}
 	values   map[string]interface{}
-	closed   bool
-	clean    bool
+	disposed flag
+	closed   flag
 }
 
 func NewRoot(log *Log) Node {
 	if log == nil {
-		output := func(...interface{}) {}
+		nop := func(...interface{}) {}
 		fatal := func(...interface{}) { os.Exit(1) }
-		log = &Log{Output: output, Fatal: fatal}
+		log = &Log{Warn: nop, Fatal: fatal, Recover: nop}
 	}
 	dso := &node{}
 	dso.log = log
 	dso.name = "root"
 	dso.mutex = &sync.Mutex{}
-	dso.done = make(chan interface{})
-	dso.channel = make(chan interface{})
+	dso.disposed.channel = make(chan interface{})
+	dso.closed.channel = make(chan interface{})
 	dso.agents = make(map[string]interface{})
 	dso.values = make(map[string]interface{})
 	dso.children = NewSorted()
@@ -73,16 +78,20 @@ func (dso *node) Name() string {
 	return dso.name
 }
 
-func (dso *node) Wait() {
-	<-dso.done
+func (dso *node) WaitDisposed() {
+	<-dso.disposed.channel
 }
 
-func (dso *node) Done() <-chan interface{} {
-	return dso.done
+func (dso *node) WaitClosed() {
+	<-dso.closed.channel
+}
+
+func (dso *node) Disposed() <-chan interface{} {
+	return dso.disposed.channel
 }
 
 func (dso *node) Closed() <-chan interface{} {
-	return dso.channel
+	return dso.closed.channel
 }
 
 func (dso *node) State() *State {
@@ -90,8 +99,8 @@ func (dso *node) State() *State {
 	defer dso.mutex.Unlock()
 	s := &State{}
 	s.Name = dso.name
-	s.Closed = dso.closed
-	s.Clean = dso.clean
+	s.Closed = dso.closed.flag
+	s.Disposed = dso.disposed.flag
 	s.Actions = dso.actions.Names()
 	s.Agents = make([]string, 0, len(dso.agents))
 	s.Children = make([]Node, 0, dso.children.Count())
@@ -104,11 +113,11 @@ func (dso *node) State() *State {
 	return s
 }
 
-func (dso *node) Child(name string) Node {
+func (dso *node) AddChild(name string) Node {
 	dso.mutex.Lock()
 	defer dso.mutex.Unlock()
-	if dso.closed {
-		dso.log.Output("closed ignoring child:", name)
+	if dso.closed.flag {
+		dso.log.Warn("closed ignoring child:", name)
 		return nil
 	}
 	if dso.children.Get(name) != nil {
@@ -128,8 +137,8 @@ func (dso *node) Child(name string) Node {
 func (dso *node) Go(name string, action func()) {
 	dso.mutex.Lock()
 	defer dso.mutex.Unlock()
-	if dso.closed {
-		dso.log.Output("closed ignoring agent:", name)
+	if dso.closed.flag {
+		dso.log.Warn("closed ignoring agent:", name)
 		return
 	}
 	if _, ok := dso.agents[name]; ok {
@@ -139,7 +148,7 @@ func (dso *node) Go(name string, action func()) {
 	dso.agents[name] = action
 	go func() {
 		defer func() {
-			defer dso.cleanup()
+			defer dso.dispose()
 			dso.mutex.Lock()
 			defer dso.mutex.Unlock()
 			delete(dso.agents, name)
@@ -183,7 +192,7 @@ func (dso *node) AddCloser(name string, action func() error) {
 	dso.set(name, func() {
 		err := action()
 		if err != nil {
-			dso.log.Output(name, err)
+			dso.log.Warn(name, err)
 		}
 	})
 }
@@ -191,9 +200,9 @@ func (dso *node) AddCloser(name string, action func() error) {
 func (dso *node) Close() {
 	dso.mutex.Lock()
 	defer dso.mutex.Unlock()
-	if !dso.closed {
-		dso.closed = true
-		close(dso.channel)
+	if !dso.closed.flag {
+		dso.closed.flag = true
+		close(dso.closed.channel)
 		for _, name := range dso.actions.Names() {
 			current := dso.actions.Remove(name)
 			dso.safe(name, current.(func()))
@@ -203,15 +212,15 @@ func (dso *node) Close() {
 			for _, child := range children {
 				child.(Node).Close()
 			}
-			dso.cleanup()
+			dso.dispose()
 		}()
 	}
 }
 
-func (dso *node) cleanup() {
+func (dso *node) dispose() {
 	dso.mutex.Lock()
 	defer dso.mutex.Unlock()
-	if !dso.closed {
+	if !dso.closed.flag {
 		return
 	}
 	if len(dso.agents) > 0 {
@@ -220,15 +229,15 @@ func (dso *node) cleanup() {
 	if dso.children.Count() > 0 {
 		return
 	}
-	if dso.clean {
+	if dso.disposed.flag {
 		return
 	}
-	dso.clean = true
-	close(dso.done)
+	dso.disposed.flag = true
+	close(dso.disposed.channel)
 	if dso.parent == nil {
 		return
 	}
-	defer dso.parent.cleanup()
+	defer dso.parent.dispose()
 	dso.parent.mutex.Lock()
 	defer dso.parent.mutex.Unlock()
 	dso.parent.children.Remove(dso.name)
@@ -239,7 +248,7 @@ func (dso *node) set(name string, action func()) {
 	if current != nil {
 		dso.safe(name, current.(func()))
 	}
-	if dso.closed {
+	if dso.closed.flag {
 		dso.safe(name, action)
 	} else {
 		dso.actions.Set(name, action)
@@ -250,7 +259,7 @@ func (dso *node) safe(name string, action func()) {
 	defer func() {
 		r := recover()
 		if r != nil {
-			dso.log.Output("recover", name, r)
+			dso.log.Recover(name, r)
 		}
 	}()
 	action()
