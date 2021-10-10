@@ -3,7 +3,6 @@ package tree
 import (
 	"fmt"
 	"os"
-	"strings"
 	"testing"
 	"time"
 )
@@ -24,12 +23,6 @@ func (tl *tlog) ftl(args ...interface{}) {
 func (tl *tlog) w(c <-chan interface{}, args ...interface{}) {
 	<-c
 	tl.out <- fmt.Sprintln(args...)
-}
-
-func (tl *tlog) tos(t *testing.T, millis int, pattern string) {
-	tl.to(t, millis, func(line string) bool {
-		return strings.Contains(line, pattern)
-	})
 }
 
 func (tl *tlog) tose(t *testing.T, millis int, pattern string) {
