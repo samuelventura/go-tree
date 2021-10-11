@@ -8,10 +8,10 @@ import (
 type Node interface {
 	Name() string
 	State() *State
-	Go(name string, action func())
 	AddChild(name string) Node
 	GetValue(name string) interface{}
 	SetValue(name string, value interface{})
+	AddProcess(name string, action func())
 	AddAction(name string, action func())
 	AddCloser(name string, closer func() error)
 	AddChannel(name string, channel chan interface{})
@@ -134,7 +134,7 @@ func (dso *node) AddChild(name string) Node {
 	return child
 }
 
-func (dso *node) Go(name string, action func()) {
+func (dso *node) AddProcess(name string, action func()) {
 	dso.mutex.Lock()
 	defer dso.mutex.Unlock()
 	if dso.closed.flag {
@@ -147,12 +147,13 @@ func (dso *node) Go(name string, action func()) {
 	}
 	dso.agents[name] = action
 	go func() {
+		defer dso.dispose()
 		defer func() {
-			defer dso.dispose()
 			dso.mutex.Lock()
 			defer dso.mutex.Unlock()
 			delete(dso.agents, name)
 		}()
+		defer dso.Close()
 		dso.safe(name, action)
 	}()
 }

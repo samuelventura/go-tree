@@ -64,7 +64,7 @@ func TestRootClosed(t *testing.T) {
 	assert.Nil(t, root.AddChild("child"))
 	assert.Equal(t, 0, len(root.State().Children))
 	go5 := make(chan interface{})
-	root.Go("agent", func() { <-go5 })
+	root.AddProcess("agent", func() { <-go5 })
 	assert.Equal(t, 0, len(root.State().Agents))
 }
 
@@ -74,15 +74,15 @@ func TestChildCleanup(t *testing.T) {
 	child1 := root.AddChild("child1")
 	child2 := root.AddChild("child2")
 	child3 := root.AddChild("child3")
-	child1.Go("go1", func() { <-child1.Closed() })
-	child1.Go("go2", func() { <-child2.Closed() })
-	child1.Go("go3", func() { <-child3.Closed() })
-	child2.Go("go1", func() { <-child1.Closed() })
-	child2.Go("go2", func() { <-child2.Closed() })
-	child2.Go("go3", func() { <-child3.Closed() })
-	child3.Go("go1", func() { <-child1.Closed() })
-	child3.Go("go2", func() { <-child2.Closed() })
-	child3.Go("go3", func() { <-child3.Closed() })
+	child1.AddProcess("go1", func() { <-child1.Closed() })
+	child1.AddProcess("go2", func() { <-child2.Closed() })
+	child1.AddProcess("go3", func() { <-child3.Closed() })
+	child2.AddProcess("go1", func() { <-child1.Closed() })
+	child2.AddProcess("go2", func() { <-child2.Closed() })
+	child2.AddProcess("go3", func() { <-child3.Closed() })
+	child3.AddProcess("go1", func() { <-child1.Closed() })
+	child3.AddProcess("go2", func() { <-child2.Closed() })
+	child3.AddProcess("go3", func() { <-child3.Closed() })
 	check(t, tlog, root, 1000)
 }
 
@@ -123,7 +123,7 @@ func random(node Node, vmax int, hmax int) {
 	}
 	n = rand.Intn(hmax)
 	for i := 0; i < n; i++ {
-		node.Go("go"+fmt.Sprint(i), func() { <-rch() })
+		node.AddProcess("go"+fmt.Sprint(i), func() { <-rch() })
 	}
 	if vmax <= 0 {
 		return
