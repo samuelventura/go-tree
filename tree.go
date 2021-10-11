@@ -55,7 +55,11 @@ type node struct {
 	closed   flag
 }
 
-func NewRoot(log *Log) Node {
+func DefaultRoot() Node {
+	return NewRoot("root", nil)
+}
+
+func NewRoot(name string, log *Log) Node {
 	if log == nil {
 		nop := func(...interface{}) {}
 		fatal := func(...interface{}) { os.Exit(1) }
@@ -63,7 +67,7 @@ func NewRoot(log *Log) Node {
 	}
 	dso := &node{}
 	dso.log = log
-	dso.name = "root"
+	dso.name = name
 	dso.mutex = &sync.Mutex{}
 	dso.disposed.channel = make(chan interface{})
 	dso.closed.channel = make(chan interface{})
@@ -124,8 +128,7 @@ func (dso *node) AddChild(name string) Node {
 		dso.log.Fatal("duplicate child:", name)
 		return nil
 	}
-	child := NewRoot(dso.log).(*node)
-	child.name = name
+	child := NewRoot(name, dso.log).(*node)
 	child.parent = dso
 	for n, v := range dso.values {
 		child.values[n] = v

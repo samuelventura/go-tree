@@ -10,7 +10,7 @@ import (
 
 func TestRootChannelCleanup(t *testing.T) {
 	tlog := &tlog{make(chan string, 1024)}
-	root := NewRoot(log(tlog))
+	root := NewRoot("test", log(tlog))
 	go1 := make(chan interface{})
 	root.AddChannel("go1", go1)
 	check(t, tlog, root, 1000)
@@ -19,7 +19,7 @@ func TestRootChannelCleanup(t *testing.T) {
 
 func TestRootActionCleanup(t *testing.T) {
 	tlog := &tlog{make(chan string, 1024)}
-	root := NewRoot(log(tlog))
+	root := NewRoot("test", log(tlog))
 	go1 := make(chan interface{})
 	root.AddAction("go1", func() {
 		close(go1)
@@ -30,7 +30,7 @@ func TestRootActionCleanup(t *testing.T) {
 
 func TestRootCloserCleanup(t *testing.T) {
 	tlog := &tlog{make(chan string, 1024)}
-	root := NewRoot(log(tlog))
+	root := NewRoot("test", log(tlog))
 	go1 := make(chan interface{})
 	root.AddCloser("go1", func() error {
 		close(go1)
@@ -42,7 +42,7 @@ func TestRootCloserCleanup(t *testing.T) {
 
 func TestRootClosed(t *testing.T) {
 	tlog := &tlog{make(chan string, 1024)}
-	root := NewRoot(log(tlog))
+	root := NewRoot("test", log(tlog))
 	root.Close()
 	go1 := make(chan interface{})
 	root.AddChannel("go1", go1)
@@ -70,10 +70,14 @@ func TestRootClosed(t *testing.T) {
 
 func TestChildCleanup(t *testing.T) {
 	tlog := &tlog{make(chan string, 1024)}
-	root := NewRoot(log(tlog))
+	root := NewRoot("test", log(tlog))
+	assert.Equal(t, "test", root.Name())
 	child1 := root.AddChild("child1")
 	child2 := root.AddChild("child2")
 	child3 := root.AddChild("child3")
+	assert.Equal(t, "child1", child1.Name())
+	assert.Equal(t, "child2", child2.Name())
+	assert.Equal(t, "child3", child3.Name())
 	child1.AddProcess("go1", func() { <-child1.Closed() })
 	child1.AddProcess("go2", func() { <-child2.Closed() })
 	child1.AddProcess("go3", func() { <-child3.Closed() })
@@ -88,7 +92,7 @@ func TestChildCleanup(t *testing.T) {
 
 func TestRandom(t *testing.T) {
 	tlog := &tlog{make(chan string, 1024)}
-	root := NewRoot(log(tlog))
+	root := NewRoot("test", log(tlog))
 	random(root, 5, 10)
 	check(t, tlog, root, 4000)
 }
