@@ -2,10 +2,16 @@ package tree
 
 import (
 	"fmt"
-	"os"
+	"runtime"
 	"testing"
 	"time"
 )
+
+func stacktrace() string {
+	array := make([]byte, 2048)
+	s := runtime.Stack(array, false)
+	return string(array[0:s])
+}
 
 type tlog struct {
 	out chan string
@@ -15,9 +21,9 @@ func (tl *tlog) pln(args ...interface{}) {
 	tl.out <- fmt.Sprintln(args...)
 }
 
-func (tl *tlog) ftl(args ...interface{}) {
+func (tl *tlog) rec(ss string, args ...interface{}) {
 	tl.out <- fmt.Sprintln(args...)
-	os.Exit(1)
+	tl.out <- fmt.Sprintln(ss)
 }
 
 func (tl *tlog) w(c <-chan interface{}, args ...interface{}) {

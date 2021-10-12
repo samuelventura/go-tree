@@ -100,8 +100,7 @@ func TestRandom(t *testing.T) {
 func log(tlog *tlog) *Log {
 	return &Log{
 		Warn:    tlog.pln,
-		Fatal:   tlog.ftl,
-		Recover: tlog.pln,
+		Recover: tlog.rec,
 	}
 }
 

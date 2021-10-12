@@ -34,29 +34,29 @@ func (dso *sorted) Count() int {
 
 func (dso *sorted) Values() []interface{} {
 	values := make([]interface{}, 0, len(dso.index))
-	element := dso.list.Back()
+	element := dso.list.Front()
 	for element != nil {
 		item := element.Value.(*named)
 		values = append(values, item.value)
-		element = element.Prev()
+		element = element.Next()
 	}
 	return values
 }
 
 func (dso *sorted) Names() []string {
 	names := make([]string, 0, len(dso.index))
-	element := dso.list.Back()
+	element := dso.list.Front()
 	for element != nil {
 		item := element.Value.(*named)
 		names = append(names, item.name)
-		element = element.Prev()
+		element = element.Next()
 	}
 	return names
 }
 
 func (dso *sorted) Set(name string, value interface{}) {
 	item := &named{name, value}
-	dso.index[name] = dso.list.PushBack(item)
+	dso.index[name] = dso.list.PushFront(item)
 }
 
 func (dso *sorted) Get(name string) interface{} {
