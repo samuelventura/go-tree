@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"math/rand"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func TestRootChannelCleanup(t *testing.T) {
+func TestTreeRootChannelCleanup(t *testing.T) {
 	tlog := &tlog{make(chan string, 1024)}
 	root := NewRoot("test", log(tlog))
 	go1 := make(chan interface{})
@@ -17,7 +18,7 @@ func TestRootChannelCleanup(t *testing.T) {
 	<-go1
 }
 
-func TestRootActionCleanup(t *testing.T) {
+func TestTreeRootActionCleanup(t *testing.T) {
 	tlog := &tlog{make(chan string, 1024)}
 	root := NewRoot("test", log(tlog))
 	go1 := make(chan interface{})
@@ -28,7 +29,7 @@ func TestRootActionCleanup(t *testing.T) {
 	<-go1
 }
 
-func TestRootCloserCleanup(t *testing.T) {
+func TestTreeRootCloserCleanup(t *testing.T) {
 	tlog := &tlog{make(chan string, 1024)}
 	root := NewRoot("test", log(tlog))
 	go1 := make(chan interface{})
@@ -40,7 +41,7 @@ func TestRootCloserCleanup(t *testing.T) {
 	<-go1
 }
 
-func TestRootClosed(t *testing.T) {
+func TestTreeRootClosed(t *testing.T) {
 	tlog := &tlog{make(chan string, 1024)}
 	root := NewRoot("test", log(tlog))
 	root.Close()
@@ -68,7 +69,7 @@ func TestRootClosed(t *testing.T) {
 	assert.Equal(t, 0, len(root.State().Agents))
 }
 
-func TestChildCleanup(t *testing.T) {
+func TestTreeChildCleanup(t *testing.T) {
 	tlog := &tlog{make(chan string, 1024)}
 	root := NewRoot("test", log(tlog))
 	assert.Equal(t, "test", root.Name())
@@ -90,7 +91,8 @@ func TestChildCleanup(t *testing.T) {
 	check(t, tlog, root, 1000)
 }
 
-func TestRandom(t *testing.T) {
+func TestTreeRandom(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
 	tlog := &tlog{make(chan string, 1024)}
 	root := NewRoot("test", log(tlog))
 	random(root, 5, 10)

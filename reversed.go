@@ -2,7 +2,7 @@ package tree
 
 import "container/list"
 
-type Sorted interface {
+type Reversed interface {
 	Count() int
 	Names() []string
 	Values() []interface{}
@@ -16,23 +16,23 @@ type named struct {
 	value interface{}
 }
 
-type sorted struct {
+type reversed struct {
 	list  *list.List
 	index map[string]*list.Element
 }
 
-func NewSorted() Sorted {
-	dso := &sorted{}
+func NewReversed() Reversed {
+	dso := &reversed{}
 	dso.list = list.New()
 	dso.index = make(map[string]*list.Element)
 	return dso
 }
 
-func (dso *sorted) Count() int {
+func (dso *reversed) Count() int {
 	return len(dso.index)
 }
 
-func (dso *sorted) Values() []interface{} {
+func (dso *reversed) Values() []interface{} {
 	values := make([]interface{}, 0, len(dso.index))
 	element := dso.list.Front()
 	for element != nil {
@@ -43,7 +43,7 @@ func (dso *sorted) Values() []interface{} {
 	return values
 }
 
-func (dso *sorted) Names() []string {
+func (dso *reversed) Names() []string {
 	names := make([]string, 0, len(dso.index))
 	element := dso.list.Front()
 	for element != nil {
@@ -54,12 +54,15 @@ func (dso *sorted) Names() []string {
 	return names
 }
 
-func (dso *sorted) Set(name string, value interface{}) {
+func (dso *reversed) Set(name string, value interface{}) {
+	if _, ok := dso.index[name]; ok {
+		panic("duplicated")
+	}
 	item := &named{name, value}
 	dso.index[name] = dso.list.PushFront(item)
 }
 
-func (dso *sorted) Get(name string) interface{} {
+func (dso *reversed) Get(name string) interface{} {
 	element, ok := dso.index[name]
 	if ok {
 		item := element.Value.(*named)
@@ -68,7 +71,7 @@ func (dso *sorted) Get(name string) interface{} {
 	return nil
 }
 
-func (dso *sorted) Remove(name string) interface{} {
+func (dso *reversed) Remove(name string) interface{} {
 	element, ok := dso.index[name]
 	if ok {
 		delete(dso.index, name)

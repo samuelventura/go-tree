@@ -47,8 +47,8 @@ type node struct {
 	log      *Log
 	parent   *node
 	name     string
-	actions  Sorted
-	children Sorted
+	actions  Reversed
+	children Reversed
 	mutex    *sync.Mutex
 	agents   map[string]interface{}
 	values   map[string]interface{}
@@ -70,8 +70,8 @@ func NewRoot(name string, log *Log) Node {
 	dso.closed.channel = make(chan interface{})
 	dso.agents = make(map[string]interface{})
 	dso.values = make(map[string]interface{})
-	dso.children = NewSorted()
-	dso.actions = NewSorted()
+	dso.children = NewReversed()
+	dso.actions = NewReversed()
 	return dso
 }
 
