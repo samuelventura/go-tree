@@ -14,23 +14,18 @@ func (tl *tlog) pln(args ...interface{}) {
 	tl.out <- fmt.Sprintln(args...)
 }
 
-func (tl *tlog) rec(ss string, args ...interface{}) {
-	tl.out <- fmt.Sprintln(args...)
-	tl.out <- fmt.Sprintln(ss)
-}
-
-func (tl *tlog) w(c <-chan interface{}, args ...interface{}) {
+func (tl *tlog) wait_and_print(c <-chan interface{}, args ...interface{}) {
 	<-c
 	tl.out <- fmt.Sprintln(args...)
 }
 
-func (tl *tlog) tose(t *testing.T, millis int, pattern string) {
-	tl.to(t, millis, func(line string) bool {
+func (tl *tlog) wait_to_equal(t *testing.T, millis int, pattern string) {
+	tl.wait_to(t, millis, func(line string) bool {
 		return line == pattern
 	})
 }
 
-func (tl *tlog) to(t *testing.T, millis int, checker func(string) bool) {
+func (tl *tlog) wait_to(t *testing.T, millis int, checker func(string) bool) {
 	done := make(chan interface{})
 	go func() {
 		for {

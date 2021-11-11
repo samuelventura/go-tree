@@ -17,6 +17,8 @@ type Node interface {
 	AddChannel(name string, channel chan interface{})
 	Disposed() <-chan interface{}
 	Closed() <-chan interface{}
+	Println(args ...interface{})
+	PanicIfError(err error)
 	WaitDisposed()
 	WaitClosed()
 	Recover()
@@ -24,18 +26,13 @@ type Node interface {
 }
 
 type State struct {
-	Name     string
-	Values   map[string]string
-	Actions  []string
-	Agents   []string
-	Children []Node
-	Closed   bool
-	Disposed bool
-}
-
-type Log struct {
-	Warn    func(args ...interface{})
-	Recover func(ss string, args ...interface{})
+	Name      string
+	Values    map[string]string
+	Actions   []string
+	Processes []string
+	Children  []Node
+	Closed    bool
+	Disposed  bool
 }
 
 type flag struct {
@@ -44,31 +41,26 @@ type flag struct {
 }
 
 type node struct {
-	log      *Log
-	parent   *node
-	name     string
-	actions  Reversed
-	children Reversed
-	mutex    *sync.Mutex
-	agents   map[string]interface{}
-	values   map[string]interface{}
-	disposed flag
-	closed   flag
+	log       func(args ...interface{})
+	parent    *node
+	name      string
+	actions   Reversed
+	children  Reversed
+	mutex     *sync.Mutex
+	values    map[string]interface{}
+	processes map[string]interface{}
+	disposed  flag
+	closed    flag
 }
 
-func NewRoot(name string, log *Log) Node {
-	if log == nil {
-		nop := func(...interface{}) {}
-		rec := func(string, ...interface{}) {}
-		log = &Log{Warn: nop, Recover: rec}
-	}
+func NewRoot(name string, log func(args ...interface{})) Node {
 	dso := &node{}
 	dso.log = log
 	dso.name = name
 	dso.mutex = &sync.Mutex{}
 	dso.disposed.channel = make(chan interface{})
 	dso.closed.channel = make(chan interface{})
-	dso.agents = make(map[string]interface{})
+	dso.processes = make(map[string]interface{})
 	dso.values = make(map[string]interface{})
 	dso.children = NewReversed()
 	dso.actions = NewReversed()
@@ -80,11 +72,23 @@ func (dso *node) Name() string {
 }
 
 func (dso *node) WaitDisposed() {
+	dso.Close()
 	<-dso.disposed.channel
 }
 
 func (dso *node) WaitClosed() {
+	dso.Close()
 	<-dso.closed.channel
+}
+
+func (dso *node) Println(args ...interface{}) {
+	dso.log(args...)
+}
+
+func (dso *node) PanicIfError(err error) {
+	if err != nil {
+		panic(err)
+	}
 }
 
 func (dso *node) Disposed() <-chan interface{} {
@@ -104,13 +108,13 @@ func (dso *node) State() *State {
 	s.Disposed = dso.disposed.flag
 	s.Actions = dso.actions.Names()
 	s.Values = make(map[string]string)
-	s.Agents = make([]string, 0, len(dso.agents))
+	s.Processes = make([]string, 0, len(dso.processes))
 	s.Children = make([]Node, 0, dso.children.Count())
 	for n, v := range dso.values {
 		s.Values[n] = fmt.Sprint(v)
 	}
-	for n := range dso.agents {
-		s.Agents = append(s.Agents, n)
+	for n := range dso.processes {
+		s.Processes = append(s.Processes, n)
 	}
 	for _, v := range dso.children.Values() {
 		s.Children = append(s.Children, v.(Node))
@@ -122,12 +126,10 @@ func (dso *node) AddChild(name string) Node {
 	dso.mutex.Lock()
 	defer dso.mutex.Unlock()
 	if dso.closed.flag {
-		dso.log.Warn("node closed")
-		return nil
+		dso.panic(dso.name, " AddChild node closed: ", name)
 	}
 	if dso.children.Get(name) != nil {
-		dso.throw("duplicate child")
-		return nil
+		dso.panic(dso.name, " AddChild duplicate name: ", name)
 	}
 	child := NewRoot(name, dso.log).(*node)
 	child.parent = dso
@@ -142,20 +144,18 @@ func (dso *node) AddProcess(name string, action func()) {
 	dso.mutex.Lock()
 	defer dso.mutex.Unlock()
 	if dso.closed.flag {
-		dso.log.Warn("node closed")
-		return
+		dso.panic(dso.name, " AddProcess node closed: ", name)
 	}
-	if _, ok := dso.agents[name]; ok {
-		dso.throw("duplicate agent")
-		return
+	if _, ok := dso.processes[name]; ok {
+		dso.panic(dso.name, " AddProcess duplicate name: ", name)
 	}
-	dso.agents[name] = action
+	dso.processes[name] = action
 	go func() {
 		defer dso.dispose()
 		defer func() {
 			dso.mutex.Lock()
 			defer dso.mutex.Unlock()
-			delete(dso.agents, name)
+			delete(dso.processes, name)
 		}()
 		defer dso.Recover()
 		action()
@@ -169,7 +169,7 @@ func (dso *node) GetValue(name string) interface{} {
 	if ok {
 		return value
 	}
-	dso.throw("value not found")
+	dso.panic(dso.name, " value not found: ", name)
 	return nil
 }
 
@@ -197,7 +197,7 @@ func (dso *node) AddCloser(name string, action func() error) {
 	dso.set(name, func() {
 		err := action()
 		if err != nil {
-			dso.log.Warn(err)
+			dso.log(dso.name, " closer ", name, " error:", err)
 		}
 	})
 }
@@ -233,7 +233,7 @@ func (dso *node) dispose() {
 	if !dso.closed.flag {
 		return
 	}
-	if len(dso.agents) > 0 {
+	if len(dso.processes) > 0 {
 		return
 	}
 	if dso.children.Count() > 0 {
@@ -274,10 +274,10 @@ func (dso *node) recover() {
 	r := recover()
 	if r != nil {
 		ss := stacktrace()
-		dso.log.Recover(ss, r)
+		dso.log("recover: ", ss, r)
 	}
 }
 
-func (dso *node) throw(msg string) {
-	panic(msg)
+func (dso *node) panic(args ...interface{}) {
+	panic(fmt.Sprint(args...))
 }
