@@ -210,21 +210,22 @@ func (dso *node) Recover() {
 func (dso *node) Close() {
 	dso.mutex.Lock()
 	defer dso.mutex.Unlock()
-	if !dso.closed.flag {
-		dso.closed.flag = true
-		close(dso.closed.channel)
-		for _, name := range dso.actions.Names() {
-			current := dso.actions.Remove(name)
-			dso.safe(current.(func()))
-		}
-		children := dso.children.Values()
-		go func() {
-			for _, child := range children {
-				child.(Node).Close()
-			}
-			dso.dispose()
-		}()
+	if dso.closed.flag {
+		return
 	}
+	dso.closed.flag = true
+	close(dso.closed.channel)
+	for _, name := range dso.actions.Names() {
+		current := dso.actions.Remove(name)
+		dso.safe(current.(func()))
+	}
+	children := dso.children.Values()
+	go func() {
+		for _, child := range children {
+			child.(Node).Close()
+		}
+		dso.dispose()
+	}()
 }
 
 func (dso *node) dispose() {
