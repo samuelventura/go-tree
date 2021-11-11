@@ -72,12 +72,10 @@ func (dso *node) Name() string {
 }
 
 func (dso *node) WaitDisposed() {
-	dso.Close()
 	<-dso.disposed.channel
 }
 
 func (dso *node) WaitClosed() {
-	dso.Close()
 	<-dso.closed.channel
 }
 
