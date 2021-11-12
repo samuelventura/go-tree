@@ -13,8 +13,9 @@ type Node interface {
 	SetValue(name string, value interface{})
 	AddProcess(name string, action func())
 	AddAction(name string, action func())
-	AddCloser(name string, closer func() error)
+	AddCloser(name string, action func() error)
 	AddChannel(name string, channel chan interface{})
+	IfRecover(actionable interface{})
 	Disposed() <-chan interface{}
 	Closed() <-chan interface{}
 	Println(args ...interface{})
@@ -192,12 +193,24 @@ func (dso *node) AddChannel(name string, channel chan interface{}) {
 func (dso *node) AddCloser(name string, action func() error) {
 	dso.mutex.Lock()
 	defer dso.mutex.Unlock()
-	dso.set(name, func() {
-		err := action()
-		if err != nil {
-			dso.log(dso.name, " closer ", name, " error:", err)
+	dso.set(name, dso.closer(action))
+}
+
+func (dso *node) IfRecover(actionable interface{}) {
+	r := recover()
+	if r != nil {
+		ss := stacktrace()
+		dso.log("recover:", ss, r)
+		switch v := actionable.(type) {
+		case func():
+			dso.safe(v)
+		case func() error:
+			dso.safe(dso.closer(v))
+		case chan interface{}:
+			dso.safe(func() { close(v) })
 		}
-	})
+		panic("repanic")
+	}
 }
 
 func (dso *node) Recover() {
@@ -269,11 +282,20 @@ func (dso *node) safe(action func()) {
 	action()
 }
 
+func (dso *node) closer(action func() error) func() {
+	return func() {
+		err := action()
+		if err != nil {
+			dso.log(dso.name, "closer error:", err)
+		}
+	}
+}
+
 func (dso *node) recover() {
 	r := recover()
 	if r != nil {
 		ss := stacktrace()
-		dso.log("recover: ", ss, r)
+		dso.log("recover:", ss, r)
 	}
 }
 
