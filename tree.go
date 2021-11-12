@@ -15,7 +15,9 @@ type Node interface {
 	AddAction(name string, action func())
 	AddCloser(name string, action func() error)
 	AddChannel(name string, channel chan interface{})
-	IfRecover(actionable interface{})
+	IfRecoverAction(action func())
+	IfRecoverCloser(action func() error)
+	IfRecoverChannel(channel chan interface{})
 	Disposed() <-chan interface{}
 	Closed() <-chan interface{}
 	Println(args ...interface{})
@@ -196,19 +198,32 @@ func (dso *node) AddCloser(name string, action func() error) {
 	dso.set(name, dso.closer(action))
 }
 
-func (dso *node) IfRecover(actionable interface{}) {
+func (dso *node) IfRecoverAction(action func()) {
 	r := recover()
 	if r != nil {
 		ss := stacktrace()
 		dso.log("recover:", ss, r)
-		switch v := actionable.(type) {
-		case func():
-			dso.safe(v)
-		case func() error:
-			dso.safe(dso.closer(v))
-		case chan interface{}:
-			dso.safe(func() { close(v) })
-		}
+		dso.safe(action)
+		panic("repanic")
+	}
+}
+
+func (dso *node) IfRecoverCloser(action func() error) {
+	r := recover()
+	if r != nil {
+		ss := stacktrace()
+		dso.log("recover:", ss, r)
+		dso.safe(dso.closer(action))
+		panic("repanic")
+	}
+}
+
+func (dso *node) IfRecoverChannel(channel chan interface{}) {
+	r := recover()
+	if r != nil {
+		ss := stacktrace()
+		dso.log("recover:", ss, r)
+		dso.safe(func() { close(channel) })
 		panic("repanic")
 	}
 }
