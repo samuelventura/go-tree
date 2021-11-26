@@ -204,7 +204,7 @@ func (dso *node) IfRecoverAction(action func()) {
 		ss := stacktrace()
 		dso.log("recover:", ss, r)
 		dso.safe(action)
-		panic("repanic")
+		panic(r)
 	}
 }
 
@@ -214,7 +214,7 @@ func (dso *node) IfRecoverCloser(action func() error) {
 		ss := stacktrace()
 		dso.log("recover:", ss, r)
 		dso.safe(dso.closer(action))
-		panic("repanic")
+		panic(r)
 	}
 }
 
@@ -224,13 +224,20 @@ func (dso *node) IfRecoverChannel(channel chan interface{}) {
 		ss := stacktrace()
 		dso.log("recover:", ss, r)
 		dso.safe(func() { close(channel) })
-		panic("repanic")
+		panic(r)
 	}
 }
 
 func (dso *node) Recover() {
 	defer dso.Close()
-	dso.recover()
+	//no nesting allowed for recover
+	//returns nil if not called from defered function
+	//https://go.dev/ref/spec#Handling_panics
+	r := recover()
+	if r != nil {
+		ss := stacktrace()
+		dso.log("recover:", ss, r)
+	}
 }
 
 func (dso *node) Close() {
